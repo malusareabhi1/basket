@@ -4,10 +4,10 @@
     "risk": "Medium",
     "horizon": "3-5 Years",
     "stocks": {
-      "NTPC": 30,
-      "GAIL": 25,
-      "RCF": 20,
-      "IOB": 25
+      "NTPC.NS": 30,
+      "GAIL.NS": 25,
+      "RCF.NS": 20,
+      "IOB.NS": 25
     }
   },
   {
@@ -15,10 +15,10 @@
     "risk": "Low",
     "horizon": "5+ Years",
     "stocks": {
-      "ICICIBANK": 30,
-      "TCS": 25,
-      "HDFC": 25,
-      "ITC": 20
+      "ICICIBANK.NS": 30,
+      "TCS.NS": 25,
+      "HDFCBANK.NS": 25,
+      "ITC.NS": 20
     }
   }
 ]
