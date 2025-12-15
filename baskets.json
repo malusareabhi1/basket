@@ -1,0 +1,24 @@
+[
+  {
+    "name": "PSU Revival",
+    "risk": "Medium",
+    "horizon": "3-5 Years",
+    "stocks": {
+      "NTPC": 30,
+      "GAIL": 25,
+      "RCF": 20,
+      "IOB": 25
+    }
+  },
+  {
+    "name": "Core Large Cap",
+    "risk": "Low",
+    "horizon": "5+ Years",
+    "stocks": {
+      "ICICIBANK": 30,
+      "TCS": 25,
+      "HDFC": 25,
+      "ITC": 20
+    }
+  }
+]

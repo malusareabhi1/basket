@@ -1,0 +1,6 @@
+{
+  "max_stock_allocation_percent": 10,
+  "max_averaging_attempts": 2,
+  "avoid_averaging_loss_percent": -30,
+  "review_frequency": "Quarterly"
+}
