@@ -1,137 +1,195 @@
 import streamlit as st
 import pandas as pd
+import yfinance as yf
 import json
+import numpy as np
+from datetime import datetime
 
-# ---------------- CONFIG ----------------
-st.set_page_config(page_title="My Investing Dashboard", layout="wide")
+# -------------------------------------------------
+# CONFIG
+# -------------------------------------------------
+st.set_page_config("Long-Term Investing", layout="wide")
 
-# ---------------- LOAD DATA ----------------
+# -------------------------------------------------
+# LOAD DATA
+# -------------------------------------------------
 @st.cache_data
-def load_baskets():
-    return json.load(open("baskets.json"))
+def load_json(file):
+    return json.load(open(file))
 
-@st.cache_data
-def load_rules():
-    return json.load(open("rules.json"))
+baskets = load_json("baskets.json")
+rules = load_json("rules.json")
+notes = load_json("notes.json")
 
-baskets = load_baskets()
-rules = load_rules()
-
-# ---------------- SESSION STATE ----------------
+# -------------------------------------------------
+# SESSION STATE
+# -------------------------------------------------
 if "portfolio" not in st.session_state:
     st.session_state.portfolio = pd.DataFrame(
-        columns=["Stock", "Qty", "Avg", "CMP"]
+        columns=["Stock", "Qty", "Avg"]
     )
 
-# ---------------- SIDEBAR ----------------
+# -------------------------------------------------
+# HELPERS
+# -------------------------------------------------
+@st.cache_data(ttl=60)
+def get_ltp(symbol):
+    try:
+        return yf.Ticker(symbol).history(period="1d")["Close"].iloc[-1]
+    except:
+        return np.nan
+
+def calculate_metrics(df):
+    df["CMP"] = df["Stock"].apply(get_ltp)
+    df["Value"] = df["Qty"] * df["CMP"]
+    df["P&L %"] = ((df["CMP"] - df["Avg"]) / df["Avg"]) * 100
+    return df
+
+def review_action(pnl):
+    if pnl >= rules["profit_booking_percent"]:
+        return "💰 Consider Profit Booking"
+    if pnl <= rules["avoid_averaging_percent"]:
+        return "❌ Avoid Averaging"
+    if pnl <= rules["review_loss_percent"]:
+        return "⚠️ Review"
+    return "Hold"
+
+# -------------------------------------------------
+# SIDEBAR
+# -------------------------------------------------
 st.sidebar.title("📊 Navigation")
 page = st.sidebar.radio(
-    "Go to",
-    ["Dashboard", "My Portfolio", "Stock Baskets", "Daily Review", "Tools", "Rulebook"]
+    "Menu",
+    ["Dashboard", "Portfolio", "Import CSV", "Baskets", "Rebalancer", "Daily Review", "Notes", "Rulebook"]
 )
 
-# ---------------- DASHBOARD ----------------
+# -------------------------------------------------
+# DASHBOARD
+# -------------------------------------------------
 if page == "Dashboard":
-    st.title("🏠 Dashboard")
+    st.title("🏠 Investing Dashboard")
 
-    df = st.session_state.portfolio.copy()
-    if not df.empty:
-        df["Value"] = df["Qty"] * df["CMP"]
-        df["P&L %"] = ((df["CMP"] - df["Avg"]) / df["Avg"]) * 100
-        total_value = df["Value"].sum()
-        overall_pnl = df["P&L %"].mean()
+    if st.session_state.portfolio.empty:
+        st.info("No holdings added yet")
     else:
-        total_value = 0
-        overall_pnl = 0
+        df = calculate_metrics(st.session_state.portfolio.copy())
+        total = df["Value"].sum()
+        pnl = (df["Value"].sum() - (df["Qty"]*df["Avg"]).sum()) / (df["Qty"]*df["Avg"]).sum() * 100
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Portfolio Value", f"₹{total_value:,.0f}")
-    col2.metric("Avg P&L %", f"{overall_pnl:.2f}%")
-    col3.metric("Active Baskets", len(baskets))
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Portfolio Value", f"₹{total:,.0f}")
+        col2.metric("Overall P&L %", f"{pnl:.2f}%")
+        col3.metric("Stocks Held", len(df))
 
-# ---------------- MY PORTFOLIO ----------------
-elif page == "My Portfolio":
+# -------------------------------------------------
+# PORTFOLIO
+# -------------------------------------------------
+elif page == "Portfolio":
     st.title("📈 My Portfolio")
 
-    with st.form("add_stock"):
-        col1, col2, col3, col4 = st.columns(4)
-        stock = col1.text_input("Stock")
-        qty = col2.number_input("Quantity", min_value=1)
-        avg = col3.number_input("Avg Price", min_value=0.0)
-        cmp = col4.number_input("CMP", min_value=0.0)
-        add = st.form_submit_button("Add / Update")
+    with st.form("add"):
+        c1, c2, c3 = st.columns(3)
+        stock = c1.text_input("Stock (Yahoo format)")
+        qty = c2.number_input("Qty", 1)
+        avg = c3.number_input("Avg Price", 0.0)
+        submit = st.form_submit_button("Save")
 
-        if add:
+        if submit:
             df = st.session_state.portfolio
             df = df[df["Stock"] != stock]
-            df.loc[len(df)] = [stock, qty, avg, cmp]
+            df.loc[len(df)] = [stock, qty, avg]
             st.session_state.portfolio = df
-            st.success("Stock added / updated")
+            st.success("Saved")
 
     if not st.session_state.portfolio.empty:
-        df = st.session_state.portfolio.copy()
-        df["Value"] = df["Qty"] * df["CMP"]
-        df["P&L %"] = ((df["CMP"] - df["Avg"]) / df["Avg"]) * 100
+        df = calculate_metrics(st.session_state.portfolio.copy())
         st.dataframe(df, use_container_width=True)
 
-# ---------------- STOCK BASKETS ----------------
-elif page == "Stock Baskets":
+# -------------------------------------------------
+# CSV IMPORT
+# -------------------------------------------------
+elif page == "Import CSV":
+    st.title("📂 Import Holdings CSV")
+
+    file = st.file_uploader("Upload CSV (Stock,Qty,Avg)")
+    if file:
+        df = pd.read_csv(file)
+        st.session_state.portfolio = df
+        st.success("Portfolio imported")
+
+# -------------------------------------------------
+# BASKETS
+# -------------------------------------------------
+elif page == "Baskets":
     st.title("🧺 Stock Basket Templates")
 
     for b in baskets:
-        with st.expander(f"{b['name']} | Risk: {b['risk']}"):
-            st.write("**Horizon:**", b["horizon"])
-            df = pd.DataFrame(
-                list(b["stocks"].items()),
-                columns=["Stock", "Weight %"]
-            )
-            st.table(df)
+        with st.expander(b["name"]):
+            st.write("Risk:", b["risk"])
+            st.write("Horizon:", b["horizon"])
+            st.table(pd.DataFrame(b["stocks"].items(), columns=["Stock", "Weight %"]))
 
-# ---------------- DAILY REVIEW ----------------
+# -------------------------------------------------
+# REBALANCER
+# -------------------------------------------------
+elif page == "Rebalancer":
+    st.title("⚖️ Basket Rebalancer")
+
+    total_capital = st.number_input("Total Capital ₹", 10000)
+    basket = st.selectbox("Select Basket", [b["name"] for b in baskets])
+
+    b = next(x for x in baskets if x["name"] == basket)
+    rows = []
+
+    for stock, w in b["stocks"].items():
+        cmp = get_ltp(stock)
+        allocation = total_capital * w / 100
+        qty = allocation / cmp if cmp else 0
+        rows.append([stock, w, round(cmp,2), int(qty)])
+
+    st.table(pd.DataFrame(rows, columns=["Stock","Weight %","CMP","Ideal Qty"]))
+
+# -------------------------------------------------
+# DAILY REVIEW
+# -------------------------------------------------
 elif page == "Daily Review":
-    st.title("🔁 Daily Review")
+    st.title("🔁 Daily / Quarterly Review")
 
     if st.session_state.portfolio.empty:
-        st.warning("No portfolio data")
+        st.warning("No holdings")
     else:
-        df = st.session_state.portfolio.copy()
-        df["P&L %"] = ((df["CMP"] - df["Avg"]) / df["Avg"]) * 100
+        df = calculate_metrics(st.session_state.portfolio.copy())
+        df["Action"] = df["P&L %"].apply(review_action)
+        st.dataframe(df[["Stock","P&L %","Action"]], use_container_width=True)
 
-        def action(pnl):
-            if pnl > 20:
-                return "Hold"
-            if pnl < rules["avoid_averaging_loss_percent"]:
-                return "❌ Avoid Averaging"
-            if pnl < -15:
-                return "⚠️ Review"
-            return "Hold"
+# -------------------------------------------------
+# NOTES
+# -------------------------------------------------
+elif page == "Notes":
+    st.title("🧠 Stock Notes")
 
-        df["Action"] = df["P&L %"].apply(action)
-        st.dataframe(df[["Stock", "P&L %", "Action"]], use_container_width=True)
+    stock = st.text_input("Stock")
+    note = st.text_area("Your Notes")
 
-# ---------------- TOOLS ----------------
-elif page == "Tools":
-    st.title("🛠️ Tools")
+    if st.button("Save Note"):
+        notes[stock] = {
+            "note": note,
+            "updated": str(datetime.now())
+        }
+        json.dump(notes, open("notes.json","w"), indent=2)
+        st.success("Saved")
 
-    st.subheader("Average Price Calculator")
-    q1 = st.number_input("Qty 1", 1)
-    p1 = st.number_input("Price 1")
-    q2 = st.number_input("Qty 2", 1)
-    p2 = st.number_input("Price 2")
+    if notes:
+        st.subheader("Saved Notes")
+        for k,v in notes.items():
+            st.markdown(f"**{k}** — {v['note']}")
 
-    if st.button("Calculate Average"):
-        avg_price = (q1*p1 + q2*p2) / (q1+q2)
-        st.success(f"New Average Price: ₹{avg_price:.2f}")
-
-# ---------------- RULEBOOK ----------------
+# -------------------------------------------------
+# RULEBOOK
+# -------------------------------------------------
 elif page == "Rulebook":
     st.title("📘 Investing Rulebook")
-
-    for k, v in rules.items():
+    for k,v in rules.items():
         st.write(f"• **{k.replace('_',' ').title()}** : {v}")
 
-    st.info("Discipline beats emotions. Follow rules strictly.")
-
-# ---------------- FOOTER ----------------
-st.markdown("---")
-st.caption("Personal investing tool • Not SEBI registered advice")
+st.caption("Personal use only • Discipline > Emotions")
